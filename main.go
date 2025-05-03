@@ -211,9 +211,61 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 	}
 	return result
 }
+func alpha_beta(x0, v0, t0 float64) (func(float64, float64, float64, float64), func(float64) [2]float64) {
+	xk := x0
+	vk := v0
+	tk := t0
+	feed := func(T, X, alpha, beta float64) {
+		dt := T - tk
+		if dt < 0.01 {
+			return
+		}
+		xpred := xk + vk*dt
+		z := X - xpred
+		xk += alpha * z
+		vk += beta * z / dt
+		tk += dt
+	}
+	state := func(T float64) [2]float64 {
+		return [2]float64{xk + (T-tk)*vk, vk}
+	}
+	return feed, state
+}
+func alpha_beta_tdee(E []LogEntry, P Params) []Estimate {
+	if len(E) == 0 {
+		return nil
+	}
+	alpha := 1 / 12.0
+	beta := 2.0*(2.0-alpha) - 4.0*math.Sqrt(1.0-alpha)
+	cal_feed, cal_obs := alpha_beta(E[0].Cals, 0.0, 0.0)
+	w_feed, w_obs := alpha_beta(E[0].Weight, 0.0, 0.0)
 
-var minTDEESeen, maxTDEESeen = math.Inf(1), math.Inf(-1)
-var minWeightSeen, maxWeightSeen = math.Inf(1), math.Inf(-1)
+	result := []Estimate{Estimate{
+		Date:   E[0].Date,
+		Weight: w_obs(0.0)[0],
+		TDEE:   cal_obs(0.0)[0] - w_obs(0.0)[1]*P.CalPerFatKg,
+		SDw:    math.Abs(P.RsdObsWeight * w_obs(0.0)[0] / math.Sqrt(1.0-alpha*alpha)),
+		SDtdee: math.Hypot(P.RsdObsWeight*w_obs(0.0)[1]/math.Sqrt(1.0-beta*beta)*P.CalPerFatKg, P.RsdObsCal*cal_obs(0.0)[0]/math.Sqrt(1.0-alpha*alpha)),
+	}}
+
+	for i := 1; i < len(E); i++ {
+		dt := E[i].Date.Sub(E[0].Date).Hours() / 24.0
+		c := E[i-1].Cals
+		wo := E[i].Weight
+
+		cal_feed(dt, c, alpha, beta)
+		w_feed(dt, wo, alpha, beta)
+
+		result = append(result, Estimate{
+			Date:   E[i].Date,
+			Weight: w_obs(dt)[0],
+			TDEE:   cal_obs(dt)[0] - w_obs(dt)[1]*P.CalPerFatKg,
+			SDw:    math.Abs(P.RsdObsWeight * w_obs(dt)[0] / math.Sqrt(1.0-alpha*alpha)),
+			SDtdee: math.Hypot(P.RsdObsWeight*w_obs(dt)[1]/math.Sqrt(1.0-beta*beta)*P.CalPerFatKg, P.RsdObsCal*cal_obs(dt)[0]/math.Sqrt(1.0-alpha*alpha)),
+		})
+	}
+	return result
+}
 
 func handleLog(w http.ResponseWriter, r *http.Request) {
 	entries, _ := loadLog()
@@ -238,7 +290,6 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 
 	estimates := pf_m(entries, params)
 
-	UpdateEstimatesBounds(estimates)
 	var goalMsg string
 	if len(estimates) > 0 {
 		latest := estimates[len(estimates)-1]
@@ -251,23 +302,6 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 	}{entries, estimates, goalMsg})
 }
 
-func UpdateEstimatesBounds(estimates []Estimate) {
-	minTDEESeen, maxTDEESeen = math.Inf(1), math.Inf(-1)
-	minWeightSeen, maxWeightSeen = math.Inf(1), math.Inf(-1)
-	for i := range estimates {
-		minTDEESeen = min(minTDEESeen, estimates[i].TDEE-100)
-		maxTDEESeen = max(maxTDEESeen, estimates[i].TDEE+100)
-		minWeightSeen = min(minWeightSeen, estimates[i].Weight-2)
-		maxWeightSeen = max(maxWeightSeen, estimates[i].Weight+2)
-	}
-	if len(estimates) == 0 {
-		minTDEESeen = 900.0
-		maxTDEESeen = 5000.0
-		minWeightSeen = 30.0
-		maxWeightSeen = 300.0
-	}
-}
-
 var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"reverse": func(entries []LogEntry) []int {
 		idx := make([]int, len(entries))
@@ -275,6 +309,12 @@ var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
 			idx[i] = len(entries) - 1 - i
 		}
 		return idx
+	},
+	"recent": func(entries []Estimate) []Estimate {
+		return entries[max(0, len(entries)-31):]
+	},
+	"recententries": func(entries []LogEntry) []LogEntry {
+		return entries[max(0, len(entries)-31):]
 	},
 	"last_estimate": func(entries []Estimate) Estimate {
 		e := Estimate{}
@@ -293,37 +333,6 @@ var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
 			}
 		}
 		return res
-	},
-	"maxTDEE": func() int {
-		return int(maxTDEESeen + 0.5)
-	},
-	"minTDEE": func() int {
-		return int(minTDEESeen + 0.5)
-	},
-	"maxWeight": func() int {
-		return int(maxWeightSeen + 0.5)
-	},
-	"minWeight": func() int {
-		return int(minWeightSeen + 0.5)
-	},
-	"scaleTDEE": func(tdee float64) int {
-		height := (tdee - minTDEESeen) / (maxTDEESeen - minTDEESeen) * 200.0
-		if height < 0 {
-			return 0
-		}
-		if height > 200 {
-			return 200
-		}
-		return int(height)
-	}, "scaleWeight": func(Weight float64) int {
-		height := (Weight - minWeightSeen) / (maxWeightSeen - minWeightSeen) * 200.0
-		if height < 0 {
-			return 0
-		}
-		if height > 200 {
-			return 200
-		}
-		return int(height)
 	},
 }).Parse(`
 <!DOCTYPE html>
@@ -374,48 +383,21 @@ var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
       <p class="text-gray-600">{{.GoalAdvice}}</p>
     </div>
     
-    <div class="bg-white rounded-lg shadow p-6 md:col-span-2">
-      <h3 class="text-lg font-semibold mb-4 text-gray-700">TDEE Trend</h3>
-      <div class="flex items-end">
-        <div class="flex flex-col justify-between h-52 mr-2 text-xs text-gray-500">
-          <div>{{maxTDEE}}</div>
-          <div class="flex-grow"></div>
-          <div>{{minTDEE}}</div>
-        </div>
-        <div class="overflow-x-auto py-2 flex-grow">
-          <div class="flex items-end h-52 min-w-max border-l border-b border-gray-300" id="tdeeChart">
-            {{range .Estimates}}
-            <div class="w-2 mx-px" title="{{.Date.Format "2006-01-02"}}: {{printf "%.0f" .TDEE}} kcal">
-              <div class="bg-blue-500 w-full transition-all duration-300" style="height: {{.TDEE | scaleTDEE}}px;"></div>
-            </div>
-            {{end}}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+    <div class="bg-white rounded-lg shadow p-6 md:col-span-1">
+		<h3 class="text-lg font-semibold mb-4 text-gray-700">TDEE Trend</h3>
+		<div class="h-56">
+			<canvas id="tdeeChart"></canvas>
+		</div>
+	</div>
 
-  <div class="bg-white rounded-lg shadow p-6 mb-8">
-    <h3 class="text-lg font-semibold mb-4 text-gray-700">Weight Trend</h3>
-    <div class="flex items-end">
-      <div class="flex flex-col justify-between h-52 mr-2 text-xs text-gray-500">
-        <div>{{maxWeight}}</div>
-        <div class="flex-grow"></div>
-        <div>{{minWeight}}</div>
-      </div>
-      <div class="overflow-x-auto py-2 flex-grow">
-        <div class="flex items-end h-52 min-w-max border-l border-b border-gray-300" id="weightChart">
-          {{range .Estimates}}
-          <div class="w-2 mx-px" title="{{.Date.Format "2006-01-02"}}: {{printf "%.2f" .Weight}} kg">
-            <div class="bg-green-500 w-full transition-all duration-300" style="height: {{.Weight | scaleWeight}}px;"></div>
-          </div>
-          {{end}}
-        </div>
-      </div>
-    </div>
-  </div>
+	<div class="bg-white rounded-lg shadow p-6 md:col-span-1">
+		<h3 class="text-lg font-semibold mb-4 text-gray-700">Weight Trend</h3>
+		<div class="h-56">
+			<canvas id="weightChart"></canvas>
+		</div>
+	</div>
 
-  <div class="bg-white rounded-lg shadow p-6 mb-8 overflow-x-auto">
+  <div class="bg-white rounded-lg shadow p-6 overflow-x-auto md:col-span-3">
     <h2 class="text-lg font-semibold mb-4 text-gray-700">Log + Estimates</h2>
     <table class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-50">
@@ -507,6 +489,121 @@ document.addEventListener("DOMContentLoaded", function () {
   if (weightChart) {
     weightChart.parentElement.scrollLeft = weightChart.scrollWidth;
   }
+});
+</script>
+<script src="/chart.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // Prepare data for charts
+  const dates = [{{range .Estimates | recent}}"{{.Date.Format "2006-01-02"}}",{{end}}];
+  const tdeeValues = [{{range .Estimates | recent}}{{printf "%.1f" .TDEE}},{{end}}];
+  const calsValues = [{{range .Entries | recententries}}{{printf "%.1f" .Cals}},{{end}}];
+  const tdeeErrors = [{{range .Estimates | recent}}{{printf "%.1f" .SDtdee}},{{end}}];
+  const weightValues = [{{range .Estimates | recent}}{{printf "%.2f" .Weight}},{{end}}];
+  const weightErrors = [{{range .Estimates | recent}}{{printf "%.2f" .SDw}},{{end}}];
+  
+  // TDEE Chart
+  const tdeeCtx = document.getElementById('tdeeChart').getContext('2d');
+  new Chart(tdeeCtx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: 'TDEE (kcal)',
+        data: tdeeValues,
+        borderColor: 'rgb(59, 130, 246)',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0.1,
+        fill: true
+      }, {
+        label: 'Cals (kcal)',
+        data: calsValues,
+        borderColor: 'rgba(255, 183, 0,0.5)',
+        backgroundColor: 'rgba(255, 197, 109, 0.5)',
+        borderWidth: 1,
+        pointRadius: 2,
+        tension: 0.1,
+        fill: true
+      },]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const index = context.dataIndex;
+              return ` + "`" + `TDEE: ${tdeeValues[index]} ± ${tdeeErrors[index]} kcal` + "`" + `;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          title: {
+            display: true,
+            text: 'TDEE (kcal)'
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Date'
+          }
+        }
+      }
+    }
+  });
+  
+  // Weight Chart
+  const weightCtx = document.getElementById('weightChart').getContext('2d');
+  new Chart(weightCtx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: 'Weight (kg)',
+        data: weightValues,
+        borderColor: 'rgb(34, 197, 94)',
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0.1,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const index = context.dataIndex;
+              return ` + "`" + `Weight: ${weightValues[index]} ± ${weightErrors[index]} kg` + "`" + `;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          title: {
+            display: true,
+            text: 'Weight (kg)'
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Date'
+          }
+        }
+      }
+    }
+  });
 });
 </script>
 </body>
@@ -657,11 +754,17 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 //go:embed style.css
 var raw_css_data string
 
+//go:embed chart.min.js
+var chartJsCode string
+
 func serveCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Write([]byte(raw_css_data))
 }
-
+func serveChartJs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Write([]byte(chartJsCode))
+}
 func goalAdvice(current, goal, tdee, calPerKg float64) (float64, string) {
 	if goal <= 0 || calPerKg <= 0 {
 		return 0, "Set a valid goal weight."
@@ -674,8 +777,6 @@ func goalAdvice(current, goal, tdee, calPerKg float64) (float64, string) {
 		direction = "mantain"
 	}
 
-	// We suggest ~0.5kg per week → ~3500 kcal/week adjustment
-	// For faster adjustment: delta = sign * 500 kcal
 	delta := min(max(goal-current, -1.0), 1.0) * 500.0
 	rate := math.Abs(delta * 7.0 / calPerKg)
 	return tdee + delta, fmt.Sprintf("To %v weight (~%.2fkg/week), eat about %.0f kcal/day.", direction, rate, tdee+delta)
@@ -686,6 +787,7 @@ func main() {
 
 	http.HandleFunc("/", handleLog)
 	http.HandleFunc("/style.css", serveCSS)
+	http.HandleFunc("/chart.min.js", serveChartJs)
 	http.HandleFunc("/settings", handleSettings)
 	go func() {
 		time.Sleep(500 * time.Millisecond) // Small delay to ensure server starts
