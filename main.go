@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"html/template"
 	"log"
@@ -18,32 +19,53 @@ import (
 	"time"
 )
 
-type LogEntry struct {
-	Date   time.Time
-	Weight float64
-	Cals   float64
+// Add these imports at the top of your file
+
+// other existing imports remain
+
+// Add this type and function before main()
+type AppConfig struct {
+	Port       int
+	LogsFile   string
+	ParamsFile string
+	NoAutoOpen bool
 }
 
-type Estimate struct {
-	Date   time.Time
-	Weight float64
-	TDEE   float64
-	SDw    float64
-	SDtdee float64
+func parseFlags() AppConfig {
+	port := flag.Int("port", 8080, "Port to serve application on")
+	logsFile := flag.String("logs", "", "Path to logs CSV file (overrides TDEE_LOGS_FILE env variable)")
+	paramsFile := flag.String("params", "", "Path to parameters JSON file (overrides TDEE_PARAMS_FILE env variable)")
+	noAutoOpen := flag.Bool("no-browser", false, "Don't automatically open browser")
+
+	// Add help text
+	flag.Usage = func() {
+		fmt.Println("TDEE Tracker - Track your TDEE and weight")
+		fmt.Println("\nUsage:")
+		flag.PrintDefaults()
+		fmt.Println("\nEnvironment variables:")
+		fmt.Println("  TDEE_LOGS_FILE    Path to logs CSV file")
+		fmt.Println("  TDEE_PARAMS_FILE  Path to parameters JSON file")
+	}
+
+	flag.Parse()
+
+	return AppConfig{
+		Port:       *port,
+		LogsFile:   *logsFile,
+		ParamsFile: *paramsFile,
+		NoAutoOpen: *noAutoOpen,
+	}
 }
 
-type Params struct {
-	InitialTDEE     float64
-	CalPerFatKg     float64
-	RsdTDEE         float64
-	RsdObsCal       float64
-	RsdObsWeight    float64
-	RsdWeight       float64
-	PfVarianceBoost float64
-	GoalWeight      float64
-}
+// Modify findOrCreateFile to respect command-line options
+func findOrCreateFile(envVar, defaultName string, defaultContent []byte, overridePath string) string {
+	// Check command-line override first
+	if overridePath != "" {
+		log.Println(defaultName, "loaded from", overridePath, "(command-line option)")
+		return overridePath
+	}
 
-func findOrCreateFile(envVar, defaultName string, defaultContent []byte) string {
+	// Rest of function remains the same...
 	// 1. Check ENV
 	if path := os.Getenv(envVar); path != "" {
 		if _, err := os.Stat(path); err == nil {
@@ -80,27 +102,32 @@ func findOrCreateFile(envVar, defaultName string, defaultContent []byte) string 
 	return defaultName
 }
 
-var (
-	defaultParams = []byte(`{
-		"InitialTDEE": -1,
-		"CalPerFatKg": 7700,
-		"RsdTDEE": 0.01,
-		"RsdObsCal": 0.1,
-		"RsdObsWeight": 0.004,
-		"RsdWeight": 0.0001,
-		"PfVarianceBoost": 0.0833,
-		"GoalWeight": -1
-	}`)
+type LogEntry struct {
+	Date   time.Time
+	Weight float64
+	Cals   float64
+}
 
-	csvFile    = findOrCreateFile("TDEE_LOGS_FILE", "logs.csv", []byte{})
-	paramsFile = findOrCreateFile("TDEE_PARAMS_FILE", "params.json", defaultParams)
-)
+type Estimate struct {
+	Date   time.Time
+	Weight float64
+	TDEE   float64
+	SDw    float64
+	SDtdee float64
+}
+
+type Params struct {
+	InitialTDEE     float64
+	CalPerFatKg     float64
+	RsdTDEE         float64
+	RsdObsCal       float64
+	RsdObsWeight    float64
+	RsdWeight       float64
+	PfVarianceBoost float64
+	GoalWeight      float64
+}
 
 var layout = "2006-01-02"
-
-func init() {
-
-}
 
 func loadLog() ([]LogEntry, error) {
 	file, err := os.OpenFile(csvFile, os.O_CREATE|os.O_RDONLY, 0644)
@@ -782,20 +809,52 @@ func goalAdvice(current, goal, tdee, calPerKg float64) (float64, string) {
 	return tdee + delta, fmt.Sprintf("To %v weight (~%.2fkg/week), eat about %.0f kcal/day.", direction, rate, tdee+delta)
 }
 
+var (
+	defaultParams = []byte(`{
+		"InitialTDEE": -1,
+		"CalPerFatKg": 7700,
+		"RsdTDEE": 0.01,
+		"RsdObsCal": 0.1,
+		"RsdObsWeight": 0.004,
+		"RsdWeight": 0.0001,
+		"PfVarianceBoost": 0.0833,
+		"GoalWeight": -1
+	}`)
+
+	// These will be initialized in main()
+	csvFile    string
+	paramsFile string
+)
+
 func main() {
-	const addr = "http://localhost:8080"
+	// Parse command-line flags
+	config := parseFlags()
+
+	// Initialize file paths with command-line options
+	csvFile = findOrCreateFile("TDEE_LOGS_FILE", "logs.csv", []byte{}, config.LogsFile)
+	paramsFile = findOrCreateFile("TDEE_PARAMS_FILE", "params.json", defaultParams, config.ParamsFile)
+
+	addr := fmt.Sprintf("http://localhost:%d", config.Port)
 
 	http.HandleFunc("/", handleLog)
 	http.HandleFunc("/style.css", serveCSS)
 	http.HandleFunc("/chart.min.js", serveChartJs)
 	http.HandleFunc("/settings", handleSettings)
-	go func() {
-		time.Sleep(500 * time.Millisecond) // Small delay to ensure server starts
-		openBrowser(addr)
-	}()
 
-	fmt.Println("Serving at", addr)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Only open browser if not disabled
+	if !config.NoAutoOpen {
+		go func() {
+			time.Sleep(500 * time.Millisecond) // Small delay to ensure server starts
+			openBrowser(addr)
+		}()
+	}
+
+	fmt.Printf("TDEE Tracker started!\n")
+	fmt.Printf("Server address: %s\n", addr)
+	fmt.Printf("Log file: %s\n", csvFile)
+	fmt.Printf("Parameters file: %s\n", paramsFile)
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil))
 }
 
 func openBrowser(url string) {
