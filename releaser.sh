@@ -210,7 +210,7 @@ create_archives() {
             TAR_NAME="${BINARY_NAME}.tar.gz"
             echo -e "${YELLOW}Creazione archivio: $TAR_NAME${NC}"
             
-            (tar -cvzf "$ARCHIVE_DIR/$TAR_NAME" "$BUILD_DIR/$BINARY_NAME")
+            (tar -cvzf "$ARCHIVE_DIR/$TAR_NAME" -C "$BUILD_DIR" "$BINARY_NAME")
             echo -e "${GREEN}Archivio creato: $ARCHIVE_DIR/$TAR_NAME${NC}"
         fi
     done
