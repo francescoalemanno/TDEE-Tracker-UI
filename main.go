@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	_ "embed"
 	"encoding/csv"
 	"encoding/json"
@@ -19,7 +20,7 @@ import (
 	"time"
 )
 
-const appVersion = "1.1.0"
+const appVersion = "1.2.0"
 
 type AppConfig struct {
 	Port       int
@@ -235,11 +236,12 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 	}
 	return result
 }
-func alpha_beta(x0, v0, t0 float64) (func(float64, float64, float64, float64), func(float64) [2]float64) {
+func alpha_beta(x0, v0, t0 float64) (func(float64, float64, float64), func(float64) [2]float64) {
 	xk := x0
 	vk := v0
 	tk := t0
-	feed := func(T, X, alpha, beta float64) {
+	feed := func(T, X, alpha float64) {
+		beta := 2.0*(2.0-alpha) - 4.0*math.Sqrt(1.0-alpha)
 		dt := T - tk
 		if dt < 0.01 {
 			return
@@ -259,8 +261,9 @@ func alpha_beta_tdee(E []LogEntry, P Params) []Estimate {
 	if len(E) == 0 {
 		return nil
 	}
-	alpha := 1 / 12.0
-	beta := 2.0*(2.0-alpha) - 4.0*math.Sqrt(1.0-alpha)
+
+	alpha := 1 / 16.0
+
 	cal_feed, cal_obs := alpha_beta(E[0].Cals, 0.0, 0.0)
 	w_feed, w_obs := alpha_beta(E[0].Weight, 0.0, 0.0)
 
@@ -268,8 +271,8 @@ func alpha_beta_tdee(E []LogEntry, P Params) []Estimate {
 		Date:   E[0].Date,
 		Weight: w_obs(0.0)[0],
 		TDEE:   cal_obs(0.0)[0] - w_obs(0.0)[1]*P.CalPerFatKg,
-		SDw:    math.Abs(P.RsdObsWeight * w_obs(0.0)[0] / math.Sqrt(1.0-alpha*alpha)),
-		SDtdee: math.Hypot(P.RsdObsWeight*w_obs(0.0)[1]/math.Sqrt(1.0-beta*beta)*P.CalPerFatKg, P.RsdObsCal*cal_obs(0.0)[0]/math.Sqrt(1.0-alpha*alpha)),
+		SDw:    math.Abs(P.RsdObsWeight * w_obs(0.0)[0]),
+		SDtdee: math.Hypot(P.RsdObsWeight*w_obs(0.0)[1]*P.CalPerFatKg, P.RsdObsCal*cal_obs(0.0)[0]),
 	}}
 
 	for i := 1; i < len(E); i++ {
@@ -277,17 +280,18 @@ func alpha_beta_tdee(E []LogEntry, P Params) []Estimate {
 		c := E[i-1].Cals
 		wo := E[i].Weight
 
-		cal_feed(dt, c, alpha, beta)
-		w_feed(dt, wo, alpha, beta)
+		cal_feed(dt, c, alpha)
+		w_feed(dt, wo, alpha)
 
 		result = append(result, Estimate{
 			Date:   E[i].Date,
 			Weight: w_obs(dt)[0],
 			TDEE:   cal_obs(dt)[0] - w_obs(dt)[1]*P.CalPerFatKg,
-			SDw:    math.Abs(P.RsdObsWeight * w_obs(dt)[0] / math.Sqrt(1.0-alpha*alpha)),
-			SDtdee: math.Hypot(P.RsdObsWeight*w_obs(dt)[1]/math.Sqrt(1.0-beta*beta)*P.CalPerFatKg, P.RsdObsCal*cal_obs(dt)[0]/math.Sqrt(1.0-alpha*alpha)),
+			SDw:    math.Abs(P.RsdObsWeight * w_obs(dt)[0]),
+			SDtdee: math.Hypot(P.RsdObsWeight*w_obs(dt)[1]*P.CalPerFatKg, P.RsdObsCal*cal_obs(dt)[0]),
 		})
 	}
+
 	return result
 }
 
@@ -312,14 +316,14 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 	}
 	params, _ := loadParams()
 
-	estimates := pf_m(entries, params)
+	estimates := alpha_beta_tdee(entries, params)
 
 	var goalMsg string
 	if len(estimates) > 0 {
 		latest := estimates[len(estimates)-1]
 		_, goalMsg = goalAdvice(latest.Weight, params.GoalWeight, latest.TDEE, params.CalPerFatKg)
 	}
-	tmpl.Execute(w, struct {
+	tmpl.ExecuteTemplate(w, "index.html", struct {
 		Entries    []LogEntry
 		Estimates  []Estimate
 		GoalAdvice string
@@ -327,423 +331,47 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 	}{entries, estimates, goalMsg, appVersion})
 }
 
-var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
-	"reverse": func(entries []LogEntry) []int {
-		idx := make([]int, len(entries))
-		for i := range entries {
-			idx[i] = len(entries) - 1 - i
-		}
-		return idx
-	},
-	"recent": func(entries []Estimate) []Estimate {
-		return entries[max(0, len(entries)-31):]
-	},
-	"recententries": func(entries []LogEntry) []LogEntry {
-		return entries[max(0, len(entries)-31):]
-	},
-	"last_estimate": func(entries []Estimate) Estimate {
-		e := Estimate{}
-		if len(entries) > 0 {
-			e = entries[len(entries)-1]
-		}
-		return e
-	},
-	"defaults": func(entries []LogEntry) [3]string {
-		res := [3]string{time.Now().Format(layout), "", ""}
-		if len(entries) > 0 {
-			e := entries[len(entries)-1]
-			if e.Date.Format(layout) == res[0] {
-				res[1] = fmt.Sprintf("%.2f", e.Weight)
-				res[2] = fmt.Sprintf("%.2f", e.Cals)
+//go:embed templates
+var templateFS embed.FS
+
+var tmpl *template.Template
+
+func loadTemplates() {
+	// Per caricare tutti i template da una directory
+	tmpl = template.Must(template.New("").Funcs(template.FuncMap{
+		"reverse": func(entries []LogEntry) []int {
+			idx := make([]int, len(entries))
+			for i := range entries {
+				idx[i] = len(entries) - 1 - i
 			}
-		}
-		return res
-	},
-}).Parse(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TDEE Tracker</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body class="bg-gray-50 min-h-screen">
-<header class="bg-blue-100 shadow-md px-6 py-4 mb-6 flex justify-between items-center">
-  <div class="text-xl font-bold text-gray-800">TDEE Tracker</div>
-  <a href="/settings" class="text-gray-800 font-medium hover:underline">⚙️ Settings</a>
-</header>
-
-<div class="container mx-auto px-4 max-w-4xl">
-  {{$def := defaults .Entries}}
-  <div class="bg-white rounded-lg shadow p-6 mb-8">
-    <h2 class="text-lg font-semibold mb-4 text-gray-700">Add New Entry</h2>
-    <form method="post" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
-        <input type="date" name="date" value="{{index $def 0}}" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
-        <input type="number" name="weight" step="0.01" value="{{index $def 1}}" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Calories</label>
-        <input type="number" name="cals" step="1" value="{{index $def 2}}" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-      </div>
-      <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">Save Entry</button>
-    </form>
-  </div>
-
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-    <div class="bg-white rounded-lg shadow p-6 md:col-span-1">
-      <h3 class="text-lg font-semibold mb-4 text-gray-700">Current Stats</h3>
-      <ul class="space-y-2">
-        <li><span class="font-medium">Date:</span> {{ (last_estimate .Estimates).Date.Format "2006-01-02" }}</li>
-        <li><span class="font-medium">TDEE:</span> {{ printf "%.0f" (last_estimate .Estimates).TDEE }} ± {{ printf "%.0f" (last_estimate .Estimates).SDtdee }} kcal/day</li>
-        <li><span class="font-medium">Weight:</span> {{ printf "%.2f" (last_estimate .Estimates).Weight }} ± {{ printf "%.2f" (last_estimate .Estimates).SDw }} kg</li>
-      </ul>
-      
-      <h3 class="text-lg font-semibold mt-6 mb-2 text-gray-700">Goal Weight Advice</h3>
-      <p class="text-gray-600">{{.GoalAdvice}}</p>
-    </div>
-    
-    <div class="bg-white rounded-lg shadow p-6 md:col-span-1">
-		<h3 class="text-lg font-semibold mb-4 text-gray-700">TDEE Trend</h3>
-		<div class="h-56">
-			<canvas id="tdeeChart"></canvas>
-		</div>
-	</div>
-
-	<div class="bg-white rounded-lg shadow p-6 md:col-span-1">
-		<h3 class="text-lg font-semibold mb-4 text-gray-700">Weight Trend</h3>
-		<div class="h-56">
-			<canvas id="weightChart"></canvas>
-		</div>
-	</div>
-
-  <div class="bg-white rounded-lg shadow p-6 overflow-x-auto md:col-span-3">
-    <h2 class="text-lg font-semibold mb-4 text-gray-700">Log + Estimates</h2>
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Weight (kg)</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Calories</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est. TDEE</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Weight</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-        </tr>
-      </thead>
-      <tbody class="bg-white divide-y divide-gray-200">
-        {{range $i := .Entries | reverse}}
-        <tr class="hover:bg-gray-50">
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{(index $.Estimates $i).Date.Format "2006-01-02"}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.2f" (index $.Entries $i).Weight}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.0f" (index $.Entries $i).Cals}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.0f" (index $.Estimates $i).TDEE}} ± {{printf "%.0f" (index $.Estimates $i).SDtdee}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.2f" (index $.Estimates $i).Weight}} ± {{printf "%.2f" (index $.Estimates $i).SDw}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm">
-            <button onclick="openModal('{{(index $.Entries $i).Date.Format "2006-01-02"}}', '{{(index $.Entries $i).Weight}}', '{{(index $.Entries $i).Cals}}')" 
-              class="text-blue-600 hover:text-blue-900 focus:outline-none focus:underline">
-              Edit
-            </button>
-          </td>
-        </tr>
-        {{end}}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Modal -->
-<div id="editModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-    <div class="flex justify-between items-center mb-4">
-      <h3 class="text-lg font-medium text-gray-700">Edit Entry</h3>
-      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-500">
-        <span class="text-2xl">&times;</span>
-      </button>
-    </div>
-    <form method="post" class="space-y-4">
-      <input type="hidden" id="edit-date" name="date">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
-        <input type="number" id="edit-weight" name="weight" step="0.01" required 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Calories</label>
-        <input type="number" id="edit-cals" name="cals" step="1" required 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-      </div>
-      <button type="submit" 
-        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
-        Update Entry
-      </button>
-    </form>
-  </div>
-</div>
-
-<footer class="bg-blue-50 text-center py-6 mt-12 border-t border-gray-200">
-  <div class="container mx-auto px-4">
-	<p class="text-gray-600 mb-2">TDEE Tracker UI v{{.Version}}</p>
-    <p class="text-gray-600 mb-4">
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI" class="text-blue-600 hover:underline" target="_blank">GitHub Repository</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/releases" class="text-blue-600 hover:underline" target="_blank">Check for Updates</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/blob/main/LICENSE" class="text-blue-600 hover:underline" target="_blank">MIT License</a>
-    </p>
-    <p class="text-gray-500 text-sm">Built with ❤️ by <a href="https://github.com/francescoalemanno" class="text-blue-600 hover:underline" target="_blank">Francesco Alemanno</a></p>
-  </div>
-</footer>
-
-<script>
-function openModal(date, weight, cals) {
-  document.getElementById('edit-date').value = date;
-  document.getElementById('edit-weight').value = weight;
-  document.getElementById('edit-cals').value = cals;
-  document.getElementById('editModal').classList.remove('hidden');
+			return idx
+		},
+		"recent": func(entries []Estimate) []Estimate {
+			return entries[max(0, len(entries)-31):]
+		},
+		"recententries": func(entries []LogEntry) []LogEntry {
+			return entries[max(0, len(entries)-31):]
+		},
+		"last_estimate": func(entries []Estimate) Estimate {
+			e := Estimate{}
+			if len(entries) > 0 {
+				e = entries[len(entries)-1]
+			}
+			return e
+		},
+		"defaults": func(entries []LogEntry) [3]string {
+			res := [3]string{time.Now().Format(layout), "", ""}
+			if len(entries) > 0 {
+				e := entries[len(entries)-1]
+				if e.Date.Format(layout) == res[0] {
+					res[1] = fmt.Sprintf("%.2f", e.Weight)
+					res[2] = fmt.Sprintf("%.2f", e.Cals)
+				}
+			}
+			return res
+		},
+	}).ParseFS(templateFS, "templates/*.html"))
 }
-
-function closeModal() {
-  document.getElementById('editModal').classList.add('hidden');
-}
-
-window.onclick = function(event) {
-  const modal = document.getElementById('editModal');
-  if (event.target == modal) {
-    closeModal();
-  }
-}
-
-document.addEventListener("DOMContentLoaded", function () {
-  const tdeeChart = document.getElementById("tdeeChart");
-  if (tdeeChart) {
-    tdeeChart.parentElement.scrollLeft = tdeeChart.scrollWidth;
-  }
-  
-  const weightChart = document.getElementById("weightChart");
-  if (weightChart) {
-    weightChart.parentElement.scrollLeft = weightChart.scrollWidth;
-  }
-});
-</script>
-<script src="/chart.min.js"></script>
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  // Prepare data for charts
-  const dates = [{{range .Estimates | recent}}"{{.Date.Format "2006-01-02"}}",{{end}}];
-  const tdeeValues = [{{range .Estimates | recent}}{{printf "%.1f" .TDEE}},{{end}}];
-  const calsValues = [{{range .Entries | recententries}}{{printf "%.1f" .Cals}},{{end}}];
-  const tdeeErrors = [{{range .Estimates | recent}}{{printf "%.1f" .SDtdee}},{{end}}];
-  const weightValues = [{{range .Estimates | recent}}{{printf "%.2f" .Weight}},{{end}}];
-  const weightErrors = [{{range .Estimates | recent}}{{printf "%.2f" .SDw}},{{end}}];
-  
-  // TDEE Chart
-  const tdeeCtx = document.getElementById('tdeeChart').getContext('2d');
-  new Chart(tdeeCtx, {
-    type: 'line',
-    data: {
-      labels: dates,
-      datasets: [{
-        label: 'TDEE (kcal)',
-        data: tdeeValues,
-        borderColor: 'rgb(59, 130, 246)',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        pointRadius: 3,
-        tension: 0.1,
-        fill: true
-      }, {
-        label: 'Cals (kcal)',
-        data: calsValues,
-        borderColor: 'rgba(255, 183, 0,0.5)',
-        backgroundColor: 'rgba(255, 197, 109, 0.5)',
-        borderWidth: 1,
-        pointRadius: 2,
-        tension: 0.1,
-        fill: true
-      },]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              const index = context.dataIndex;
-              return ` + "`" + `TDEE: ${tdeeValues[index]} ± ${tdeeErrors[index]} kcal` + "`" + `;
-            }
-          }
-        }
-      },
-      scales: {
-        y: {
-          title: {
-            display: true,
-            text: 'TDEE (kcal)'
-          }
-        },
-        x: {
-          title: {
-            display: true,
-            text: 'Date'
-          }
-        }
-      }
-    }
-  });
-  
-  // Weight Chart
-  const weightCtx = document.getElementById('weightChart').getContext('2d');
-  new Chart(weightCtx, {
-    type: 'line',
-    data: {
-      labels: dates,
-      datasets: [{
-        label: 'Weight (kg)',
-        data: weightValues,
-        borderColor: 'rgb(34, 197, 94)',
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-        borderWidth: 2,
-        pointRadius: 3,
-        tension: 0.1,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              const index = context.dataIndex;
-              return ` + "`" + `Weight: ${weightValues[index]} ± ${weightErrors[index]} kg` + "`" + `;
-            }
-          }
-        }
-      },
-      scales: {
-        y: {
-          title: {
-            display: true,
-            text: 'Weight (kg)'
-          }
-        },
-        x: {
-          title: {
-            display: true,
-            text: 'Date'
-          }
-        }
-      }
-    }
-  });
-});
-</script>
-</body>
-</html>
-`))
-var tmplSettings = template.Must(template.New("settings").Parse(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TDEE Tracker Settings</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body class="bg-gray-50 min-h-screen">
-<header class="bg-blue-100 shadow-md px-6 py-4 mb-6 flex justify-between items-center">
-  <div class="text-xl font-bold text-gray-800">TDEE Tracker Settings</div>
-  <a href="/" class="text-gray-800 font-medium hover:underline">← Back to Tracker</a>
-</header>
-
-<div class="container mx-auto px-4 max-w-lg">
-  <div class="bg-white rounded-lg shadow p-6 mb-8">
-    <h2 class="text-lg font-semibold mb-6 text-gray-700">Configure Tracker Parameters</h2>
-    <form method="post" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Initial TDEE</label>
-        <input type="number" name="InitialTDEE" step="1" value="{{.InitialTDEE}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Set to -1 to use first entry's calories</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Calories per Fat Kg</label>
-        <input type="number" name="CalPerFatKg" step="1" value="{{.CalPerFatKg}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Default is 7700 kcal/kg</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD TDEE</label>
-        <input type="number" name="RsdTDEE" step="0.0001" value="{{.RsdTDEE}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Random daily variation in metabolism</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Obs Cal</label>
-        <input type="number" name="RsdObsCal" step="0.0001" value="{{.RsdObsCal}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Accuracy of calorie counting</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Obs Weight</label>
-        <input type="number" name="RsdObsWeight" step="0.0001" value="{{.RsdObsWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Accuracy of weight measurement</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Weight Drift</label>
-        <input type="number" name="RsdWeight" step="0.0001" value="{{.RsdWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Random daily variation in true weight</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">PF Variance Boost</label>
-        <input type="number" name="PfVarianceBoost" step="0.0001" value="{{.PfVarianceBoost}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Particle filter variance scaling</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Goal Weight (kg)</label>
-        <input type="number" name="GoalWeight" step="0.01" value="{{.GoalWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Set to -1 to disable goal advice</p>
-      </div>
-      
-      <button type="submit" 
-        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
-        Save Settings
-      </button>
-    </form>
-  </div>
-</div>
-
-<footer class="bg-blue-50 text-center py-6 mt-12 border-t border-gray-200">
-  <div class="container mx-auto px-4">
-	<p class="text-gray-600 mb-2">TDEE Tracker UI v{{.Version}}</p>
-    <p class="text-gray-600 mb-4">
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI" class="text-blue-600 hover:underline" target="_blank">GitHub Repository</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/releases" class="text-blue-600 hover:underline" target="_blank">Check for Updates</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/blob/main/LICENSE" class="text-blue-600 hover:underline" target="_blank">MIT License</a>
-    </p>
-    <p class="text-gray-500 text-sm">Built with ❤️ by <a href="https://github.com/francescoalemanno" class="text-blue-600 hover:underline" target="_blank">Francesco Alemanno</a></p>
-  </div>
-</footer>
-
-</body>
-</html>
-`))
 
 func loadParams() (Params, error) {
 	var p Params
@@ -797,8 +425,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-
-	tmplSettings.Execute(w, struct {
+	tmpl.ExecuteTemplate(w, "settings.html", struct {
 		Params
 		Version string
 	}{p, appVersion})
@@ -853,6 +480,7 @@ var (
 )
 
 func main() {
+	loadTemplates()
 	// Parse command-line flags
 	config := parseFlags()
 
