@@ -19,11 +19,8 @@ import (
 	"time"
 )
 
-// Add these imports at the top of your file
+const appVersion = "1.1.0"
 
-// other existing imports remain
-
-// Add this type and function before main()
 type AppConfig struct {
 	Port       int
 	LogsFile   string
@@ -57,9 +54,9 @@ func parseFlags() AppConfig {
 	}
 }
 
-// Modify findOrCreateFile to respect command-line options
 func findOrCreateFile(envVar, defaultName string, defaultContent []byte, overridePath string) string {
 	// Check command-line override first
+
 	if overridePath != "" {
 		log.Println(defaultName, "loaded from", overridePath, "(command-line option)")
 		return overridePath
@@ -326,7 +323,8 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 		Entries    []LogEntry
 		Estimates  []Estimate
 		GoalAdvice string
-	}{entries, estimates, goalMsg})
+		Version    string
+	}{entries, estimates, goalMsg, appVersion})
 }
 
 var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
@@ -486,6 +484,18 @@ var tmpl = template.Must(template.New("page").Funcs(template.FuncMap{
     </form>
   </div>
 </div>
+
+<footer class="bg-blue-50 text-center py-6 mt-12 border-t border-gray-200">
+  <div class="container mx-auto px-4">
+	<p class="text-gray-600 mb-2">TDEE Tracker UI v{{.Version}}</p>
+    <p class="text-gray-600 mb-4">
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI" class="text-blue-600 hover:underline" target="_blank">GitHub Repository</a> •
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/releases" class="text-blue-600 hover:underline" target="_blank">Check for Updates</a> •
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/blob/main/LICENSE" class="text-blue-600 hover:underline" target="_blank">MIT License</a>
+    </p>
+    <p class="text-gray-500 text-sm">Built with ❤️ by <a href="https://github.com/francescoalemanno" class="text-blue-600 hover:underline" target="_blank">Francesco Alemanno</a></p>
+  </div>
+</footer>
 
 <script>
 function openModal(date, weight, cals) {
@@ -718,6 +728,19 @@ var tmplSettings = template.Must(template.New("settings").Parse(`
     </form>
   </div>
 </div>
+
+<footer class="bg-blue-50 text-center py-6 mt-12 border-t border-gray-200">
+  <div class="container mx-auto px-4">
+	<p class="text-gray-600 mb-2">TDEE Tracker UI v{{.Version}}</p>
+    <p class="text-gray-600 mb-4">
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI" class="text-blue-600 hover:underline" target="_blank">GitHub Repository</a> •
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/releases" class="text-blue-600 hover:underline" target="_blank">Check for Updates</a> •
+      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/blob/main/LICENSE" class="text-blue-600 hover:underline" target="_blank">MIT License</a>
+    </p>
+    <p class="text-gray-500 text-sm">Built with ❤️ by <a href="https://github.com/francescoalemanno" class="text-blue-600 hover:underline" target="_blank">Francesco Alemanno</a></p>
+  </div>
+</footer>
+
 </body>
 </html>
 `))
@@ -775,7 +798,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmplSettings.Execute(w, p)
+	tmplSettings.Execute(w, struct {
+		Params
+		Version string
+	}{p, appVersion})
 }
 
 //go:embed style.css

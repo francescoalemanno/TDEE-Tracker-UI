@@ -27,7 +27,7 @@ This tool is perfect for fitness enthusiasts, dieters, or anyone interested in u
 - **Responsive Design**: Works well on both desktop and mobile devices
 
 ## 🖥️ Screenshots
-![alt text](image.png)
+![TDEE Tracker Interface](image.png)
 
 ## 🚀 Getting Started
 
@@ -52,6 +52,28 @@ go build .
 # Run the application
 ./TDEE-Tracker-UI  # on Linux/macOS
 TDEE-Tracker-UI.exe  # on Windows
+```
+
+### Command-line Options
+
+You can customize how the application runs using these flags:
+
+```
+TDEE Tracker - Track your TDEE and weight
+
+Usage:
+  -port int
+        Port to serve application on (default 8080)
+  -logs string
+        Path to logs CSV file (overrides TDEE_LOGS_FILE env variable)
+  -params string
+        Path to parameters JSON file (overrides TDEE_PARAMS_FILE env variable)
+  -no-browser
+        Don't automatically open browser
+
+Environment variables:
+  TDEE_LOGS_FILE    Path to logs CSV file
+  TDEE_PARAMS_FILE  Path to parameters JSON file
 ```
 
 ### First Time Setup
@@ -98,9 +120,17 @@ Your data is stored in the following locations:
 - **macOS**: `$HOME/.config/tdee-tracker/`
 - **Linux**: `$HOME/.config/tdee-tracker/`
 
-You can override the storage location using environment variables:
-- `TDEE_LOGS_FILE`: Path to the CSV file for your logs
-- `TDEE_PARAMS_FILE`: Path to the JSON file for your settings
+You can override the storage location using environment variables or command-line flags:
+- `TDEE_LOGS_FILE` or `-logs`: Path to the CSV file for your logs
+- `TDEE_PARAMS_FILE` or `-params`: Path to the JSON file for your settings
+
+## 🔄 Upgrading
+
+When upgrading to a newer version:
+
+1. Back up your logs.csv and params.json files
+2. Install the new version
+3. If needed, specify the path to your existing files using the command-line flags
 
 ## 🤝 Contributing
 
@@ -120,6 +150,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - The TDEE estimation algorithm is based on principles of Bayesian statistics and particle filtering
 - UI designed with Tailwind CSS for a clean, modern interface
+- Chart.js for data visualization
 
 ---
 
