@@ -1,4 +1,4 @@
-
+{{define "settings.html"}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,62 +17,23 @@
   <div class="bg-white rounded-lg shadow p-6 mb-8">
     <h2 class="text-lg font-semibold mb-6 text-gray-700">Configure Tracker Parameters</h2>
     <form method="post" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Initial TDEE</label>
-        <input type="number" name="InitialTDEE" step="1" value="{{.InitialTDEE}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Set to -1 to use first entry's calories</p>
-      </div>
       
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Calories per Fat Kg</label>
-        <input type="number" name="CalPerFatKg" step="1" value="{{.CalPerFatKg}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Default is 7700 kcal/kg</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD TDEE</label>
-        <input type="number" name="RsdTDEE" step="0.0001" value="{{.RsdTDEE}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Random daily variation in metabolism</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Obs Cal</label>
-        <input type="number" name="RsdObsCal" step="0.0001" value="{{.RsdObsCal}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Accuracy of calorie counting</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Obs Weight</label>
-        <input type="number" name="RsdObsWeight" step="0.0001" value="{{.RsdObsWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Accuracy of weight measurement</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">RSD Weight Drift</label>
-        <input type="number" name="RsdWeight" step="0.0001" value="{{.RsdWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Random daily variation in true weight</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">PF Variance Boost</label>
-        <input type="number" name="PfVarianceBoost" step="0.0001" value="{{.PfVarianceBoost}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Particle filter variance scaling</p>
-      </div>
-      
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Goal Weight (kg)</label>
-        <input type="number" name="GoalWeight" step="0.01" value="{{.GoalWeight}}" 
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-        <p class="mt-1 text-xs text-gray-500">Set to -1 to disable goal advice</p>
-      </div>
-      
+        {{template "inputField" dict "Name" "GoalWeight" "Label" "Goal Weight (kg)" "Value" .GoalWeight "Step" "0.01" "Help" "Set to -1 to disable goal advice"}}
+        {{template "inputField" dict "Name" "InitialTDEE" "Label" "Initial TDEE" "Value" .InitialTDEE "Step" "1" "Help" "Set to -1 to use first entry's calories"}}
+        <h2 class="text-lg font-semibold mb-2 text-gray-700">Advanced parameters</h2>
+        {{template "inputField" dict "Name" "CalPerFatKg" "Label" "Calories per Fat Kg" "Value" .CalPerFatKg "Step" "1" "Help" "Default is 7700 kcal/kg"}}
+        
+        {{template "inputField" dict "Name" "RsdTDEE" "Label" "RSD TDEE" "Value" .RsdTDEE "Step" "0.0001" "Help" "Random daily variation in metabolism"}}
+        
+        {{template "inputField" dict "Name" "RsdObsCal" "Label" "RSD Obs Cal" "Value" .RsdObsCal "Step" "0.0001" "Help" "Accuracy of calorie counting"}}
+        
+        {{template "inputField" dict "Name" "RsdObsWeight" "Label" "RSD Obs Weight" "Value" .RsdObsWeight "Step" "0.0001" "Help" "Accuracy of weight measurement"}}
+        
+        {{template "inputField" dict "Name" "RsdWeight" "Label" "RSD Weight Drift" "Value" .RsdWeight "Step" "0.0001" "Help" "Random daily variation in true weight"}}
+        
+        {{template "inputField" dict "Name" "PfVarianceBoost" "Label" "PF Variance Boost" "Value" .PfVarianceBoost "Step" "0.0001" "Help" "Particle filter variance scaling"}}
+        
+        
       <button type="submit" 
         class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
         Save Settings
@@ -80,18 +41,8 @@
     </form>
   </div>
 </div>
-
-<footer class="bg-blue-50 text-center py-6 mt-12 border-t border-gray-200">
-  <div class="container mx-auto px-4">
-	<p class="text-gray-600 mb-2">TDEE Tracker UI v{{.Version}}</p>
-    <p class="text-gray-600 mb-4">
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI" class="text-blue-600 hover:underline" target="_blank">GitHub Repository</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/releases" class="text-blue-600 hover:underline" target="_blank">Check for Updates</a> •
-      <a href="https://github.com/francescoalemanno/TDEE-Tracker-UI/blob/main/LICENSE" class="text-blue-600 hover:underline" target="_blank">MIT License</a>
-    </p>
-    <p class="text-gray-500 text-sm">Built with ❤️ by <a href="https://github.com/francescoalemanno" class="text-blue-600 hover:underline" target="_blank">Francesco Alemanno</a></p>
-  </div>
-</footer>
-
+{{template "footer" .}}
 </body>
 </html>
+{{end}}
+

@@ -182,11 +182,12 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 	if len(E) == 0 {
 		return nil
 	}
+	wk := E[0].Weight
 	mk := E[0].Cals
 	if P.InitialTDEE > 0 {
 		mk = P.InitialTDEE
 	}
-	wk := E[0].Weight
+
 	kfat := P.CalPerFatKg
 	kfat2 := kfat * kfat
 
@@ -236,65 +237,6 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 	}
 	return result
 }
-func alpha_beta(x0, v0, t0 float64) (func(float64, float64, float64), func(float64) [2]float64) {
-	xk := x0
-	vk := v0
-	tk := t0
-	feed := func(T, X, alpha float64) {
-		beta := 2.0*(2.0-alpha) - 4.0*math.Sqrt(1.0-alpha)
-		dt := T - tk
-		if dt < 0.01 {
-			return
-		}
-		xpred := xk + vk*dt
-		z := X - xpred
-		xk += alpha * z
-		vk += beta * z / dt
-		tk += dt
-	}
-	state := func(T float64) [2]float64 {
-		return [2]float64{xk + (T-tk)*vk, vk}
-	}
-	return feed, state
-}
-func alpha_beta_tdee(E []LogEntry, P Params) []Estimate {
-	if len(E) == 0 {
-		return nil
-	}
-
-	alpha := 1 / 16.0
-
-	cal_feed, cal_obs := alpha_beta(E[0].Cals, 0.0, 0.0)
-	w_feed, w_obs := alpha_beta(E[0].Weight, 0.0, 0.0)
-
-	result := []Estimate{Estimate{
-		Date:   E[0].Date,
-		Weight: w_obs(0.0)[0],
-		TDEE:   cal_obs(0.0)[0] - w_obs(0.0)[1]*P.CalPerFatKg,
-		SDw:    math.Abs(P.RsdObsWeight * w_obs(0.0)[0]),
-		SDtdee: math.Hypot(P.RsdObsWeight*w_obs(0.0)[1]*P.CalPerFatKg, P.RsdObsCal*cal_obs(0.0)[0]),
-	}}
-
-	for i := 1; i < len(E); i++ {
-		dt := E[i].Date.Sub(E[0].Date).Hours() / 24.0
-		c := E[i-1].Cals
-		wo := E[i].Weight
-
-		cal_feed(dt, c, alpha)
-		w_feed(dt, wo, alpha)
-
-		result = append(result, Estimate{
-			Date:   E[i].Date,
-			Weight: w_obs(dt)[0],
-			TDEE:   cal_obs(dt)[0] - w_obs(dt)[1]*P.CalPerFatKg,
-			SDw:    math.Abs(P.RsdObsWeight * w_obs(dt)[0]),
-			SDtdee: math.Hypot(P.RsdObsWeight*w_obs(dt)[1]*P.CalPerFatKg, P.RsdObsCal*cal_obs(dt)[0]),
-		})
-	}
-
-	return result
-}
-
 func handleLog(w http.ResponseWriter, r *http.Request) {
 	entries, _ := loadLog()
 	err := r.ParseForm()
@@ -316,7 +258,7 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 	}
 	params, _ := loadParams()
 
-	estimates := alpha_beta_tdee(entries, params)
+	estimates := pf_m(entries, params)
 
 	var goalMsg string
 	if len(estimates) > 0 {
@@ -339,6 +281,20 @@ var tmpl *template.Template
 func loadTemplates() {
 	// Per caricare tutti i template da una directory
 	tmpl = template.Must(template.New("").Funcs(template.FuncMap{
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("invalid dict call")
+			}
+			dict := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict keys must be strings")
+				}
+				dict[key] = values[i+1]
+			}
+			return dict, nil
+		},
 		"reverse": func(entries []LogEntry) []int {
 			idx := make([]int, len(entries))
 			for i := range entries {

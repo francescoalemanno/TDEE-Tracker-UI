@@ -62,14 +62,14 @@ You can customize how the application runs using these flags:
 TDEE Tracker - Track your TDEE and weight
 
 Usage:
-  -port int
-        Port to serve application on (default 8080)
   -logs string
         Path to logs CSV file (overrides TDEE_LOGS_FILE env variable)
-  -params string
-        Path to parameters JSON file (overrides TDEE_PARAMS_FILE env variable)
   -no-browser
         Don't automatically open browser
+  -params string
+        Path to parameters JSON file (overrides TDEE_PARAMS_FILE env variable)
+  -port int
+        Port to serve application on (default 8080)
 
 Environment variables:
   TDEE_LOGS_FILE    Path to logs CSV file
