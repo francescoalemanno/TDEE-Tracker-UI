@@ -31,7 +31,7 @@
         
         {{template "inputField" dict "Name" "RsdWeight" "Label" "RSD Weight Drift" "Value" .RsdWeight "Step" "0.0001" "Help" "Random daily variation in true weight"}}
         
-        {{template "inputField" dict "Name" "PfVarianceBoost" "Label" "PF Variance Boost" "Value" .PfVarianceBoost "Step" "0.0001" "Help" "Particle filter variance scaling"}}
+        {{template "inputField" dict "Name" "VarianceBoost" "Label" "Variance Boost" "Value" .VarianceBoost "Step" "0.0001" "Help" "Kalman filter variance scaling"}}
         
         
       <button type="submit" 

@@ -19,12 +19,13 @@ This tool is perfect for fitness enthusiasts, dieters, or anyone interested in u
 ## 🌟 Features
 
 - **Simple Daily Logging**: Easy interface to enter your weight and calorie intake
-- **Smart Calculations**: Uses particle filtering to accurately estimate your TDEE
+- **Advanced Calculations**: Uses Kalman filtering to accurately estimate your TDEE
 - **Visual Trends**: See how your TDEE and weight change over time with intuitive charts
 - **Goal Setting**: Enter your target weight and get daily calorie recommendations
 - **Customizable Parameters**: Adjust calculation settings based on your specific needs
 - **Local Storage**: Your data stays on your computer, no cloud account needed
 - **Responsive Design**: Works well on both desktop and mobile devices
+- **Version 1.3.0**: Now with improved statistical modeling for better accuracy
 
 ## 🖥️ Screenshots
 ![TDEE Tracker Interface](image.png)
@@ -84,12 +85,14 @@ Environment variables:
 
 ## 📊 How It Works
 
-TDEE Tracker uses a particle filter algorithm to estimate your true TDEE based on your logged weight and calorie intake. The mathematical model accounts for:
+TDEE Tracker uses a Kalman filter algorithm to estimate your true TDEE based on your logged weight and calorie intake. The mathematical model accounts for:
 
 - Daily metabolic variations
 - Measurement errors in calorie counting
 - Fluctuations in body weight measurements
 - The relationship between calorie deficit/surplus and weight change
+
+The Kalman filter is a state estimation algorithm that provides optimal estimates by combining predictions with measurements, considering their respective uncertainties. This approach offers more accurate and stable TDEE estimations compared to simpler methods.
 
 For optimal results:
 
@@ -107,9 +110,9 @@ In the Settings page, you can customize:
 | Calories per Fat Kg | Energy stored in 1kg of body fat | 7700 kcal/kg |
 | RSD TDEE | Day-to-day variation in metabolism | 0.01 |
 | RSD Obs Cal | Accuracy of calorie counting | 0.1 |
-| RSD Obs Weight | Accuracy of weight measurement | 0.004 |
-| RSD Weight Drift | Random daily variation in true weight | 0.0001 |
-| PF Variance Boost | Particle filter variance scaling | 0.0833 |
+| RSD Obs Weight | Accuracy of weight measurement | 0.005 |
+| RSD Weight | Random daily variation in true weight | 0.001 |
+| PF Variance Boost | Kalman filter variance scaling | 0.333 |
 | Goal Weight | Your target weight in kg | -1 (disabled) |
 
 ## 📁 Data Storage
@@ -148,7 +151,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgements
 
-- The TDEE estimation algorithm is based on principles of Bayesian statistics and particle filtering
+- The TDEE estimation algorithm is based on principles of Kalman filtering and Bayesian statistics
 - UI designed with Tailwind CSS for a clean, modern interface
 - Chart.js for data visualization
 
