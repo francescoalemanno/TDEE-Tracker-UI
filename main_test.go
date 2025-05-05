@@ -20,7 +20,7 @@ func TestKalmanFilter(t *testing.T) {
 	P := loadParams()
 	goodWeight := 0
 	goodTDEE := 0
-	for _ = range 1000 {
+	for range 1000 {
 		last := data[len(data)-1]
 		est := pf_m(data, P)
 		cal, _ := goalAdvice(last.Weight, finalWeight, est[len(est)-1].TDEE, P.CalPerFatKg)
