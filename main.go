@@ -411,6 +411,24 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	}{p, appVersion})
 }
 
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	dateStr := r.URL.Query().Get("date")
+	if dateStr != "" {
+		entries, _ := loadLog()
+		t, err := time.Parse(layout, dateStr)
+		if err == nil {
+			newEntries := []LogEntry{}
+			for _, e := range entries {
+				if !e.Date.Equal(t) {
+					newEntries = append(newEntries, e)
+				}
+			}
+			saveLog(newEntries)
+		}
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 //go:embed style.css
 var raw_css_data string
 
@@ -464,7 +482,7 @@ func main() {
 	http.HandleFunc("/style.css", serveCSS)
 	http.HandleFunc("/chart.min.js", serveChartJs)
 	http.HandleFunc("/settings", handleSettings)
-
+	http.HandleFunc("/delete", handleDelete)
 	// Only open browser if not disabled
 	if !config.NoAutoOpen {
 		go func() {
