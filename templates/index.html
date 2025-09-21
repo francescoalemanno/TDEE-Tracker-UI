@@ -39,8 +39,8 @@
       <h3 class="text-lg font-semibold mb-4 text-gray-700">Current Stats</h3>
       <ul class="space-y-2">
         <li><span class="font-medium">Date:</span> {{ (last_estimate .Estimates).Date.Format "2006-01-02" }}</li>
-        <li><span class="font-medium">TDEE:</span> {{ printf "%.0f" (last_estimate .Estimates).TDEE }} ± {{ printf "%.0f" (last_estimate .Estimates).SDtdee }} kcal/day</li>
-        <li><span class="font-medium">Weight:</span> {{ printf "%.2f" (last_estimate .Estimates).Weight }} ± {{ printf "%.2f" (last_estimate .Estimates).SDw }} kg</li>
+        <li><span class="font-medium">TDEE:</span> {{ printf "%.0f" (last_estimate .Estimates).TDEE }} kcal/day</li>
+        <li><span class="font-medium">Weight:</span> {{ printf "%.2f" (last_estimate .Estimates).Weight }} kg</li>
       </ul>
       
       <h3 class="text-lg font-semibold mt-6 mb-2 text-gray-700">Goal Weight Advice</h3>
@@ -80,8 +80,8 @@
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{(index $.Estimates $i).Date.Format "2006-01-02"}}</td>
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.2f" (index $.Entries $i).Weight}}</td>
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.0f" (index $.Entries $i).Cals}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.0f" (index $.Estimates $i).TDEE}} ± {{printf "%.0f" (index $.Estimates $i).SDtdee}}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.2f" (index $.Estimates $i).Weight}} ± {{printf "%.2f" (index $.Estimates $i).SDw}}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.0f" (index $.Estimates $i).TDEE}}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{printf "%.2f" (index $.Estimates $i).Weight}}</td>
           <td class="px-6 py-4 whitespace-nowrap text-sm">
             <button onclick="openModal('{{(index $.Entries $i).Date.Format "2006-01-02"}}', '{{(index $.Entries $i).Weight}}', '{{(index $.Entries $i).Cals}}')" 
               class="text-blue-600 hover:text-blue-900 focus:outline-none focus:underline">
@@ -177,9 +177,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const dates = [{{range .Estimates | recent}}"{{.Date.Format "2006-01-02"}}",{{end}}];
   const tdeeValues = [{{range .Estimates | recent}}{{printf "%.1f" .TDEE}},{{end}}];
   const calsValues = [{{range .Entries | recententries}}{{printf "%.1f" .Cals}},{{end}}];
-  const tdeeErrors = [{{range .Estimates | recent}}{{printf "%.1f" .SDtdee}},{{end}}];
   const weightValues = [{{range .Estimates | recent}}{{printf "%.2f" .Weight}},{{end}}];
-  const weightErrors = [{{range .Estimates | recent}}{{printf "%.2f" .SDw}},{{end}}];
   
   // TDEE Chart
   const tdeeCtx = document.getElementById('tdeeChart').getContext('2d');
@@ -215,7 +213,7 @@ document.addEventListener("DOMContentLoaded", function () {
           callbacks: {
             label: function(context) {
               const index = context.dataIndex;
-              return `TDEE: ${tdeeValues[index]} ± ${tdeeErrors[index]} kcal`;
+              return `TDEE: ${tdeeValues[index]} kcal`;
             }
           }
         }
@@ -262,7 +260,7 @@ document.addEventListener("DOMContentLoaded", function () {
           callbacks: {
             label: function(context) {
               const index = context.dataIndex;
-              return `Weight: ${weightValues[index]} ± ${weightErrors[index]} kg`;
+              return `Weight: ${weightValues[index]} kg`;
             }
           }
         }

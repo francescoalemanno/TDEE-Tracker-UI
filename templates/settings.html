@@ -23,16 +23,7 @@
         <h2 class="text-lg font-semibold mb-2 text-gray-700">Advanced parameters</h2>
         {{template "inputField" dict "Name" "CalPerFatKg" "Label" "Calories per Fat Kg" "Value" .CalPerFatKg "Step" "1" "Help" "Default is 7700 kcal/kg"}}
         
-        {{template "inputField" dict "Name" "RsdTDEE" "Label" "RSD TDEE" "Value" .RsdTDEE "Step" "0.0001" "Help" "Random daily variation in metabolism"}}
-        
-        {{template "inputField" dict "Name" "RsdObsCal" "Label" "RSD Obs Cal" "Value" .RsdObsCal "Step" "0.0001" "Help" "Accuracy of calorie counting"}}
-        
-        {{template "inputField" dict "Name" "RsdObsWeight" "Label" "RSD Obs Weight" "Value" .RsdObsWeight "Step" "0.0001" "Help" "Accuracy of weight measurement"}}
-        
-        {{template "inputField" dict "Name" "RsdWeight" "Label" "RSD Weight Drift" "Value" .RsdWeight "Step" "0.0001" "Help" "Random daily variation in true weight"}}
-        
-        {{template "inputField" dict "Name" "VarianceBoost" "Label" "Variance Boost" "Value" .VarianceBoost "Step" "0.0001" "Help" "Kalman filter variance scaling"}}
-        
+        {{template "inputField" dict "Name" "WeightLR" "Label" "Weight Learning Rate" "Value" .WeightLR "Step" "0.0001" "Help" "Tunes of fast weight trend is updated."}}
         
       <button type="submit" 
         class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">

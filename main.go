@@ -110,19 +110,13 @@ type Estimate struct {
 	Date   time.Time
 	Weight float64
 	TDEE   float64
-	SDw    float64
-	SDtdee float64
 }
 
 type Params struct {
-	InitialTDEE   float64
-	CalPerFatKg   float64
-	RsdTDEE       float64
-	RsdObsCal     float64
-	RsdObsWeight  float64
-	RsdWeight     float64
-	VarianceBoost float64
-	GoalWeight    float64
+	InitialTDEE float64
+	CalPerFatKg float64
+	WeightLR    float64
+	GoalWeight  float64
 }
 
 var layout = "2006-01-02"
@@ -181,9 +175,6 @@ func updateEntry(entries []LogEntry, newEntry LogEntry) ([]LogEntry, error) {
 type KalmanState struct {
 	X_tdee   float64
 	X_weight float64
-	P_tt     float64
-	P_wt     float64
-	P_ww     float64
 }
 
 func pf_m(E []LogEntry, P Params) []Estimate {
@@ -193,25 +184,20 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 	S := KalmanState{
 		X_tdee:   E[0].Cals,
 		X_weight: E[0].Weight,
-		P_wt:     0.0,
 	}
 	if P.InitialTDEE > 0 {
 		S.X_tdee = P.InitialTDEE
 	}
-	S.P_tt = math.Pow(S.X_tdee*P.RsdTDEE, 2) + math.Pow(S.X_tdee*P.RsdObsCal, 2)
-	S.P_ww = math.Pow(S.X_weight*P.RsdObsWeight, 2) + math.Pow(S.X_weight*P.RsdWeight, 2)
 
 	result := []Estimate{{
 		Date:   E[0].Date,
 		Weight: S.X_weight,
 		TDEE:   S.X_tdee,
-		SDw:    math.Sqrt(S.P_ww),
-		SDtdee: math.Sqrt(S.P_tt),
 	}}
 
 	for i := 1; i < len(E); i++ {
 		dt := E[i].Date.Sub(E[i-1].Date).Hours() / 24.0
-		calories := E[i-1].Cals
+		calories := (E[i].Cals + E[i-1].Cals) / 2
 		measured_weight := E[i].Weight
 
 		S = KalmanUpdate(P, S, dt, calories, measured_weight)
@@ -220,8 +206,6 @@ func pf_m(E []LogEntry, P Params) []Estimate {
 			Date:   E[i].Date,
 			Weight: S.X_weight,
 			TDEE:   S.X_tdee,
-			SDw:    math.Sqrt(S.P_ww),
-			SDtdee: math.Sqrt(S.P_tt),
 		})
 	}
 	return result
@@ -231,36 +215,16 @@ func KalmanUpdate(P Params, S KalmanState, dt float64, calories float64, measure
 	kfat := P.CalPerFatKg
 	weight_pred := S.X_weight + (calories-S.X_tdee)/kfat*dt
 	tdee_pred := S.X_tdee
-
-	Q_ww := math.Pow(S.X_weight*P.RsdWeight, 2) + math.Pow(calories*dt/kfat*P.RsdObsCal, 2)
-	Q_tt := math.Pow(S.X_tdee*P.RsdTDEE, 2)
-	Q_wt := 0.0
-
-	F_dt := -dt / kfat
-
-	P_ww_pred := F_dt*F_dt*S.P_tt + 2*F_dt*S.P_wt + S.P_ww + Q_ww
-	P_tt_pred := S.P_tt + Q_tt
-	P_wt_pred := S.P_wt + F_dt*S.P_tt + Q_wt
-
-	Vboost := 0.0
-	for iters := 0; ; iters++ {
-		R := math.Pow(measured_weight*P.RsdObsWeight, 2) + Vboost
-		Sinv := P_ww_pred + R
-		K_w := P_ww_pred / Sinv
-		K_t := P_wt_pred / Sinv
-		residual := measured_weight - weight_pred
-		Vboost = math.Pow((1-K_w)*residual, 2) * P.VarianceBoost
-
-		if iters >= 25 {
-			return KalmanState{
-				X_weight: weight_pred + K_w*residual,
-				X_tdee:   tdee_pred + K_t*residual,
-				P_ww:     (1 - K_w) * P_ww_pred,
-				P_tt:     P_tt_pred - K_t*P_wt_pred,
-				P_wt:     (1 - K_w) * P_wt_pred,
-			}
-		}
+	//Kw := (P.WeightLR*10000.0 + dt*dt) / (10000.0 + dt*dt)
+	Kw := P.WeightLR
+	//Kt := -kfat / dt * Kw * Kw / (2.0 - Kw)
+	Kt := -kfat / dt * (2.0*(2.0-Kw) - 4.0*math.Sqrt(1-Kw))
+	residual := measured_weight - weight_pred
+	return KalmanState{
+		X_weight: weight_pred + Kw*residual,
+		X_tdee:   tdee_pred + Kt*residual,
 	}
+
 }
 func handleLog(w http.ResponseWriter, r *http.Request) {
 	entries, _ := loadLog()
@@ -356,14 +320,10 @@ func loadTemplates() {
 
 func loadParams() Params {
 	p := Params{
-		InitialTDEE:   -1,
-		GoalWeight:    -1,
-		CalPerFatKg:   7700,
-		RsdTDEE:       0.01,
-		RsdObsCal:     0.1,
-		RsdObsWeight:  0.005,
-		RsdWeight:     0.001,
-		VarianceBoost: 0.3333,
+		InitialTDEE: -1,
+		GoalWeight:  -1,
+		CalPerFatKg: 7700,
+		WeightLR:    0.1,
 	}
 	file, err := os.Open(paramsFile)
 	if err != nil {
@@ -392,14 +352,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			return v
 		}
 		p = Params{
-			InitialTDEE:   parse("InitialTDEE"),
-			CalPerFatKg:   parse("CalPerFatKg"),
-			RsdTDEE:       parse("RsdTDEE"),
-			RsdObsCal:     parse("RsdObsCal"),
-			RsdObsWeight:  parse("RsdObsWeight"),
-			RsdWeight:     parse("RsdWeight"),
-			VarianceBoost: parse("VarianceBoost"),
-			GoalWeight:    parse("GoalWeight"),
+			InitialTDEE: parse("InitialTDEE"),
+			CalPerFatKg: parse("CalPerFatKg"),
+			GoalWeight:  parse("GoalWeight"),
+			WeightLR:    parse("WeightLR"),
 		}
 		saveParams(p)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
